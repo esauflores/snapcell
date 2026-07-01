@@ -1,0 +1,85 @@
+{
+  "name": "snapcell",
+  "displayName": "Snapcell",
+  "version": "0.1.0",
+  "description": "Checkpoint your Python # %% cells. Save kernel state as a snapshot, restore it, and skip re-running upstream code.",
+  "categories": [
+    "Data Science",
+    "Notebooks"
+  ],
+  "keywords": [
+    "cells",
+    "checkpoint",
+    "jupyter",
+    "pipeline",
+    "python",
+    "snapshot"
+  ],
+  "publisher": "snapcell",
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "oxlint -c .oxlintrc.json",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "knip": "knip",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "knip": "^6.23.0",
+    "oxfmt": "^0.57.0",
+    "oxlint": "^1.72.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.1.9"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "snapcell.snapshot",
+        "title": "Snapcell: Take Snapshot"
+      },
+      {
+        "command": "snapcell.restoreSnapshot",
+        "title": "Snapcell: Restore Snapshot"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "snapcell.snapshot",
+        "key": "ctrl+shift+alt+s",
+        "when": "editorLangId == python && snapcell.reactive"
+      },
+      {
+        "command": "snapcell.restoreSnapshot",
+        "key": "ctrl+shift+alt+r",
+        "when": "editorLangId == python && snapcell.reactive"
+      }
+    ],
+    "configuration": {
+      "title": "Snapcell",
+      "properties": {
+        "snapcell.snapshotPath": {
+          "type": "string",
+          "default": ".snapcell/snapshots",
+          "description": "Path to store snapshots (relative to workspace root)"
+        },
+        "snapcell.maxSnapshots": {
+          "type": "number",
+          "default": 10,
+          "description": "Maximum number of snapshots to retain"
+        }
+      }
+    }
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "icon": "src/media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  }
+}
