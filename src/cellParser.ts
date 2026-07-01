@@ -42,7 +42,7 @@ function parseCells(documentText: string): Cell[] {
 }
 
 function extractAllImports(cells: Cell[], extensionPath: string): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const fullSource = cells.map((c) => c.code).join('\n');
     if (!fullSource.trim()) {
       resolve('');
@@ -52,14 +52,18 @@ function extractAllImports(cells: Cell[], extensionPath: string): Promise<string
     const script = `${extensionPath}/src/python/extract_imports.py`;
     const child = execFile('python3', [script], { maxBuffer: 1024 * 1024 }, (error, stdout) => {
       if (error) {
-        resolve('');
+        reject(new Error('Failed to extract imports. Is Python 3.9+ installed?'));
         return;
       }
       try {
         const result = JSON.parse(stdout);
+        if (result.error) {
+          reject(new Error(result.error));
+          return;
+        }
         resolve(result.imports || '');
       } catch {
-        resolve('');
+        reject(new Error('Failed to parse imports output.'));
       }
     });
 

@@ -16,6 +16,9 @@ def extract_imports(source: str) -> str:
 
 
 if __name__ == '__main__':
+    if sys.version_info < (3, 9):
+        json.dump({'error': 'Snapcell requires Python 3.9+ for import extraction'}, sys.stdout)
+        sys.exit(0)
     source = sys.stdin.read()
     result = extract_imports(source)
     json.dump({'imports': result}, sys.stdout)

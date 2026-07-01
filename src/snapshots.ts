@@ -12,12 +12,11 @@ function snapshotDir(workspaceRoot: string): string {
 
 function snapshotCode(filepath: string): string {
   const escaped = filepath.replace(/\\/g, '\\\\');
-  return `
-try:
+  return `try:
     import dill as pickle
 except ImportError:
     import pickle
-import os, types
+import os, types, traceback
 _user_ns = dict(globals())
 _skip = {'In', 'Out', 'exit', 'quit', 'get_ipython'}
 for _k in _skip:
@@ -33,28 +32,42 @@ for _k, _v in _user_ns.items():
         _data[_k] = _v
     except (TypeError, pickle.PicklingError, AttributeError):
         pass
-os.makedirs(os.path.dirname(r"${escaped}"), exist_ok=True)
-with open(r"${escaped}", 'wb') as _f:
-    pickle.dump(_data, _f, protocol=pickle.HIGHEST_PROTOCOL)
+try:
+    os.makedirs(os.path.dirname(r"${escaped}"), exist_ok=True)
+    with open(r"${escaped}", 'wb') as _f:
+        pickle.dump(_data, _f, protocol=pickle.HIGHEST_PROTOCOL)
+    open(r"${escaped}.done", 'w').close()
+    print(f"[snapcell] saved {len(_data)} vars")
+except Exception as _e:
+    print(f"[snapcell] snapshot failed: {_e}")
+    traceback.print_exc()
+    raise
 `;
 }
 
 function importsCode(allImports: string): string {
-  return `# %% [snapcell] imports\n${allImports}`;
+  return allImports;
 }
 
 function restoreCode(filepath: string): string {
   const escaped = filepath.replace(/\\/g, '\\\\');
-  return `# %% [snapcell] restore
-try:
+  return `try:
     import dill as pickle
 except ImportError:
     import pickle
-_user_ns = globals()
-with open(r"${escaped}", 'rb') as _f:
-    _data = pickle.load(_f)
-for _k, _v in _data.items():
-    _user_ns[_k] = _v
+import traceback
+try:
+    _user_ns = globals()
+    with open(r"${escaped}", 'rb') as _f:
+        _data = pickle.load(_f)
+    for _k, _v in _data.items():
+        _user_ns[_k] = _v
+    open(r"${escaped}.done", 'w').close()
+    print(f"[snapcell] restored {len(_data)} vars")
+except Exception as _e:
+    print(f"[snapcell] restore failed: {_e}")
+    traceback.print_exc()
+    raise
 `;
 }
 
@@ -74,19 +87,104 @@ function writeIndex(workspaceRoot: string, index: Record<string, number>): void 
   fs.writeFileSync(indexFile(workspaceRoot), JSON.stringify(index, null, 2));
 }
 
+function waitForSentinel(filepath: string, timeoutMs: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const dir = path.dirname(filepath);
+    const sentinel = path.basename(filepath) + '.done';
+    const watcher = fs.watch(dir, (_event, f) => {
+      if (f === sentinel && fs.existsSync(filepath + '.done')) {
+        clearTimeout(timeout);
+        watcher.close();
+        fs.unlinkSync(filepath + '.done');
+        resolve();
+      }
+    });
+    const timeout = setTimeout(() => {
+      watcher.close();
+      reject(new Error('Timed out waiting for kernel.'));
+    }, timeoutMs);
+    if (fs.existsSync(filepath + '.done')) {
+      clearTimeout(timeout);
+      watcher.close();
+      fs.unlinkSync(filepath + '.done');
+      resolve();
+    }
+  });
+}
+
 async function executeInKernel(code: string): Promise<void> {
   await vscode.commands.executeCommand('jupyter.execSelectionInteractive', code);
 }
 
+function getInteractiveNotebook(): vscode.NotebookDocument | undefined {
+  return vscode.workspace.notebookDocuments.find(
+    (d) => d.uri.scheme === 'vscode-interactive' || d.uri.path.endsWith('.interactive'),
+  );
+}
+
+async function executeAndWait(code: string, label: string): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (editor && editor.document.languageId === 'python') {
+    await vscode.window.showTextDocument(editor.document, editor.viewColumn);
+  }
+
+  let notebook = getInteractiveNotebook();
+  if (!notebook) {
+    for (let i = 0; i < 50; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      notebook = getInteractiveNotebook();
+      if (notebook) break;
+    }
+    if (!notebook) throw new Error('No interactive window. Run a Python cell first.');
+  }
+
+  const prevCellCount = notebook.cellCount;
+  await executeInKernel(code);
+
+  for (let i = 0; i < 50; i++) {
+    if (notebook.cellCount > prevCellCount) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (notebook.cellCount === prevCellCount) throw new Error('No cell added. Run a Python cell first.');
+
+  const cell = notebook.cellAt(notebook.cellCount - 1);
+
+  if (cell.executionSummary) {
+    if (cell.executionSummary.success === false) throw new Error(`${label} failed.`);
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const sub = vscode.workspace.onDidChangeNotebookDocument((e) => {
+      if (e.notebook !== notebook) return;
+      for (const ch of e.cellChanges) {
+        if (ch.cell === cell && ch.executionSummary) {
+          sub.dispose();
+          if (ch.executionSummary.success === false) {
+            reject(new Error(`${label} failed.`));
+          } else {
+            resolve();
+          }
+          return;
+        }
+      }
+    });
+  });
+}
+
+async function executeCell(_workspaceRoot: string, cellIndex: number, code: string): Promise<void> {
+  await executeAndWait(`# %% [snapcell] cell ${cellIndex}\n${code}`, `Cell ${cellIndex + 1}`);
+}
+
 async function takeSnapshot(workspaceRoot: string, atCell: number): Promise<void> {
   const dir = snapshotDir(workspaceRoot);
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const filepath = path.join(dir, `snap_${ts}.pkl`);
+  const filepath = path.join(dir, `snap_${new Date().toISOString().replace(/[:.]/g, '-')}.pkl`);
 
   await executeInKernel(snapshotCode(filepath));
+  await waitForSentinel(filepath, 60000);
 
   if (!fs.existsSync(filepath)) {
-    throw new Error('No active Python kernel. Run a cell first.');
+    throw new Error('Snapshot file not written by kernel.');
   }
 
   const filename = path.basename(filepath);
@@ -94,11 +192,8 @@ async function takeSnapshot(workspaceRoot: string, atCell: number): Promise<void
   index[filename] = atCell;
 
   const max = vscode.workspace.getConfiguration('snapcell').get<number>('maxSnapshots', 10);
-  const allFiles = fs
-    .readdirSync(dir)
-    .filter((f) => f.startsWith('snap_') && f.endsWith('.pkl'))
-    .sort();
-  for (const f of allFiles.slice(0, allFiles.length - max)) {
+  const snapshots = await listSnapshots(workspaceRoot);
+  for (const f of snapshots.reverse().slice(0, snapshots.length - max)) {
     fs.unlinkSync(path.join(dir, f));
     delete index[f];
   }
@@ -112,6 +207,7 @@ async function restoreSnapshot(workspaceRoot: string, filename: string): Promise
   if (!fs.existsSync(filepath)) throw new Error(`Snapshot not found: ${filename}`);
 
   await executeInKernel(restoreCode(filepath));
+  await waitForSentinel(filepath, 60000);
 }
 
 async function listSnapshots(workspaceRoot: string): Promise<string[]> {
@@ -127,4 +223,4 @@ async function listSnapshots(workspaceRoot: string): Promise<string[]> {
   }
 }
 
-export { takeSnapshot, restoreSnapshot, listSnapshots, executeInKernel, importsCode };
+export { takeSnapshot, restoreSnapshot, listSnapshots, executeInKernel, executeCell, importsCode };

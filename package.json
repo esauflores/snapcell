@@ -1,7 +1,7 @@
 {
   "name": "snapcell",
   "displayName": "Snapcell",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Checkpoint your Python # %% cells. Save kernel state as a snapshot, restore it, and skip re-running upstream code.",
   "categories": [
     "Data Science",

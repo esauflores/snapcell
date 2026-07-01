@@ -5,6 +5,7 @@ import {
   restoreSnapshot,
   listSnapshots,
   executeInKernel,
+  executeCell,
   importsCode as snapImportsCode,
 } from './snapshots';
 import { snapcellCodeLensProvider } from './codelens';
@@ -78,8 +79,7 @@ async function handleRunAboveAndSnapshotCell(cellIndex: number): Promise<void> {
     for (const cell of cells) {
       if (cell.index >= cellIndex) break;
       if (!cell.code) continue;
-      await executeInKernel(cell.code);
-      await new Promise((r) => setTimeout(r, 300));
+      await executeCell(root, cell.index, cell.code);
     }
     await takeSnapshot(root, cellIndex);
     vscode.window.showInformationMessage(`Snapcell: Ran above + snapshot at cell ${cellIndex + 1}`);
@@ -128,10 +128,11 @@ async function handleRunBelowCell(cellIndex: number): Promise<void> {
     for (const cell of cells) {
       if (cell.index < cellIndex) continue;
       if (!cell.code) continue;
-      await executeInKernel(cell.code);
+      await executeCell(root, cell.index, cell.code);
     }
+    const runCount = cells.filter((c) => c.index >= cellIndex && c.code).length;
     vscode.window.showInformationMessage(
-      `Snapcell: Restored + ran ${cells.length - cellIndex} cells from cell ${cellIndex + 1}`,
+      `Snapcell: Restored + ran ${runCount} cells from cell ${cellIndex + 1}`,
     );
   } catch (err) {
     vscode.window.showErrorMessage(`Snapcell: ${err}`);
