@@ -68,4 +68,4 @@ function extractAllImports(cells: Cell[], extensionPath: string): Promise<string
   });
 }
 
-export { Cell, parseCells, extractAllImports };
+export { parseCells, extractAllImports };
