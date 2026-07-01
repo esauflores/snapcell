@@ -1,5 +1,8 @@
 # Snapcell
 
+[![CI](https://github.com/esauflores/snapcell/actions/workflows/ci.yml/badge.svg)](https://github.com/esauflores/snapcell/actions/workflows/ci.yml)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/esauflores.snapcell?label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=esauflores.snapcell)
+
 Checkpoint your Python `# %%` cells. Save kernel state as a snapshot, restore it, and skip re-running upstream code.
 
 ## Usage
