@@ -116,64 +116,9 @@ async function executeInKernel(code: string): Promise<void> {
   await vscode.commands.executeCommand('jupyter.execSelectionInteractive', code);
 }
 
-function getInteractiveNotebook(): vscode.NotebookDocument | undefined {
-  return vscode.workspace.notebookDocuments.find(
-    (d) => d.uri.scheme === 'vscode-interactive' || d.uri.path.endsWith('.interactive'),
-  );
-}
-
-async function executeAndWait(code: string, label: string): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (editor && editor.document.languageId === 'python') {
-    await vscode.window.showTextDocument(editor.document, editor.viewColumn);
-  }
-
-  let notebook = getInteractiveNotebook();
-  if (!notebook) {
-    for (let i = 0; i < 50; i++) {
-      await new Promise((r) => setTimeout(r, 100));
-      notebook = getInteractiveNotebook();
-      if (notebook) break;
-    }
-    if (!notebook) throw new Error('No interactive window. Run a Python cell first.');
-  }
-
-  const prevCellCount = notebook.cellCount;
-  await executeInKernel(code);
-
-  for (let i = 0; i < 50; i++) {
-    if (notebook.cellCount > prevCellCount) break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  if (notebook.cellCount === prevCellCount) throw new Error('No cell added. Run a Python cell first.');
-
-  const cell = notebook.cellAt(notebook.cellCount - 1);
-
-  if (cell.executionSummary) {
-    if (cell.executionSummary.success === false) throw new Error(`${label} failed.`);
-    return;
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const sub = vscode.workspace.onDidChangeNotebookDocument((e) => {
-      if (e.notebook !== notebook) return;
-      for (const ch of e.cellChanges) {
-        if (ch.cell === cell && ch.executionSummary) {
-          sub.dispose();
-          if (ch.executionSummary.success === false) {
-            reject(new Error(`${label} failed.`));
-          } else {
-            resolve();
-          }
-          return;
-        }
-      }
-    });
-  });
-}
-
 async function executeCell(_workspaceRoot: string, cellIndex: number, code: string): Promise<void> {
-  await executeAndWait(`# %% [snapcell] cell ${cellIndex}\n${code}`, `Cell ${cellIndex + 1}`);
+  await executeInKernel(`# %% [snapcell] cell ${cellIndex}\n${code}`);
+  await new Promise((r) => setTimeout(r, 300));
 }
 
 async function takeSnapshot(workspaceRoot: string, atCell: number): Promise<void> {
