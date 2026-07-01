@@ -53,10 +53,6 @@ knip:
 dev:
     code --extensionDevelopmentPath=.
 
-# Install the .vsix locally
-install-ext: snap
-    @echo "Installed"
-
 # Full CI: install → check → lint → test → build
 ci: install check lint test build
     @echo "✅ All checks passed"

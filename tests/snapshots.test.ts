@@ -8,13 +8,13 @@ import { importsCode as snapImportsCode } from '../src/snapshots';
 // but we can test importsCode which is exported
 
 describe('importsCode', () => {
-  it('wraps imports with # %% [snapcell] prefix', () => {
+  it('returns imports unchanged', () => {
     const result = snapImportsCode('import os\nimport sys');
-    expect(result).toBe('# %% [snapcell] imports\nimport os\nimport sys');
+    expect(result).toBe('import os\nimport sys');
   });
 
   it('handles empty string', () => {
     const result = snapImportsCode('');
-    expect(result).toBe('# %% [snapcell] imports\n');
+    expect(result).toBe('');
   });
 });

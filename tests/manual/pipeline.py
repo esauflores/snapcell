@@ -9,20 +9,22 @@ MULTIPLIER = 2
 
 # %% [2] Raw data
 data = [1, 2, 3, 4, 5]
-squared = [x ** 2 for x in data]
+squared = [x**2 for x in data]
 
 # %% [3] Compute
-area = PI * RADIUS ** 2
+area = PI * RADIUS**2
 circumference = 2 * PI * RADIUS
 
 # %% [4] Scale
 scaled = [x * MULTIPLIER for x in squared]
 total = sum(scaled)
 
+
 # %% [5] Dataclass
 @dataclass
 class Circle:
     radius: float
+
 
 # %% [6] Build result
 c = Circle(radius=RADIUS)
