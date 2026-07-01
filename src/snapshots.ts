@@ -75,16 +75,34 @@ function indexFile(workspaceRoot: string): string {
   return path.join(snapshotDir(workspaceRoot), '.index.json');
 }
 
-function readIndex(workspaceRoot: string): Record<string, number> {
+interface IndexEntry {
+  cell: number;
+  label?: string;
+}
+
+function readIndex(workspaceRoot: string): Record<string, IndexEntry> {
   try {
-    return JSON.parse(fs.readFileSync(indexFile(workspaceRoot), 'utf-8'));
+    const raw = JSON.parse(fs.readFileSync(indexFile(workspaceRoot), 'utf-8'));
+    const index: Record<string, IndexEntry> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      index[k] = typeof v === 'number' ? { cell: v } : v as IndexEntry;
+    }
+    return index;
   } catch {
     return {};
   }
 }
 
-function writeIndex(workspaceRoot: string, index: Record<string, number>): void {
+function writeIndex(workspaceRoot: string, index: Record<string, IndexEntry>): void {
   fs.writeFileSync(indexFile(workspaceRoot), JSON.stringify(index, null, 2));
+}
+
+function setLabel(workspaceRoot: string, filename: string, label: string): void {
+  const index = readIndex(workspaceRoot);
+  if (index[filename]) {
+    index[filename].label = label;
+    writeIndex(workspaceRoot, index);
+  }
 }
 
 function waitForSentinel(filepath: string, timeoutMs: number): Promise<void> {
@@ -116,14 +134,15 @@ async function executeInKernel(code: string): Promise<void> {
   await vscode.commands.executeCommand('jupyter.execSelectionInteractive', code);
 }
 
-async function executeCell(_workspaceRoot: string, cellIndex: number, code: string): Promise<void> {
-  await executeInKernel(`# %% [snapcell] cell ${cellIndex}\n${code}`);
-  await new Promise((r) => setTimeout(r, 300));
+async function executeCell(_workspaceRoot: string, _cellIndex: number, code: string): Promise<void> {
+  await executeInKernel(code);
+  await new Promise((r) => setTimeout(r, 500));
 }
 
-async function takeSnapshot(workspaceRoot: string, atCell: number): Promise<void> {
+async function takeSnapshot(workspaceRoot: string, atCell: number, sourceFile: string): Promise<string> {
   const dir = snapshotDir(workspaceRoot);
-  const filepath = path.join(dir, `snap_${new Date().toISOString().replace(/[:.]/g, '-')}.pkl`);
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const filepath = path.join(dir, `snap_${sourceFile}_cell${atCell + 1}_${ts}.pkl`);
 
   await executeInKernel(snapshotCode(filepath));
   await waitForSentinel(filepath, 60000);
@@ -134,16 +153,17 @@ async function takeSnapshot(workspaceRoot: string, atCell: number): Promise<void
 
   const filename = path.basename(filepath);
   const index = readIndex(workspaceRoot);
-  index[filename] = atCell;
+  index[filename] = { cell: atCell };
 
   const max = vscode.workspace.getConfiguration('snapcell').get<number>('maxSnapshots', 10);
-  const snapshots = await listSnapshots(workspaceRoot);
-  for (const f of snapshots.reverse().slice(0, snapshots.length - max)) {
-    fs.unlinkSync(path.join(dir, f));
-    delete index[f];
+  const all = await listSnapshots(workspaceRoot);
+  for (const s of all.reverse().slice(0, all.length - max)) {
+    fs.unlinkSync(path.join(dir, s.filename));
+    delete index[s.filename];
   }
 
   writeIndex(workspaceRoot, index);
+  return filename;
 }
 
 async function restoreSnapshot(workspaceRoot: string, filename: string): Promise<void> {
@@ -155,17 +175,24 @@ async function restoreSnapshot(workspaceRoot: string, filename: string): Promise
   await waitForSentinel(filepath, 60000);
 }
 
-async function listSnapshots(workspaceRoot: string): Promise<string[]> {
+interface SnapshotEntry {
+  filename: string;
+  display: string;
+}
+
+async function listSnapshots(workspaceRoot: string): Promise<SnapshotEntry[]> {
   const dir = snapshotDir(workspaceRoot);
+  const index = readIndex(workspaceRoot);
   try {
     const files = fs.readdirSync(dir);
     return files
       .filter((f) => f.startsWith('snap_') && f.endsWith('.pkl'))
       .sort()
-      .reverse();
+      .reverse()
+      .map((f) => ({ filename: f, display: index[f]?.label || f }));
   } catch {
     return [];
   }
 }
 
-export { takeSnapshot, restoreSnapshot, listSnapshots, executeInKernel, executeCell, importsCode };
+export { takeSnapshot, restoreSnapshot, listSnapshots, executeInKernel, executeCell, importsCode, setLabel };

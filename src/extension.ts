@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { parseCells, extractAllImports } from './cellParser';
 import {
   takeSnapshot,
@@ -7,6 +8,7 @@ import {
   executeInKernel,
   executeCell,
   importsCode as snapImportsCode,
+  setLabel,
 } from './snapshots';
 import { snapcellCodeLensProvider } from './codelens';
 
@@ -48,14 +50,26 @@ async function handleSnapshot(): Promise<void> {
     return;
   }
 
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.languageId !== 'python') return;
+
   const atCell = getCellAtCursor();
   if (atCell === undefined) {
     vscode.window.showErrorMessage('Cursor not inside a cell');
     return;
   }
 
+  const sourceFile = path.basename(editor.document.fileName, path.extname(editor.document.fileName));
+
   try {
-    await takeSnapshot(root, atCell);
+    const filename = await takeSnapshot(root, atCell, sourceFile);
+    const label = await vscode.window.showInputBox({
+      prompt: 'Snapshot label (optional)',
+      placeHolder: 'e.g. after data load',
+    });
+    if (label) {
+      setLabel(root, filename, label);
+    }
     vscode.window.showInformationMessage(`Snapshot saved at cell ${atCell + 1}`);
   } catch (err) {
     vscode.window.showErrorMessage(`Snapshot failed: ${err}`);
@@ -74,6 +88,7 @@ async function handleRunAboveAndSnapshotCell(cellIndex: number): Promise<void> {
   if (!editor || editor.document.languageId !== 'python') return;
 
   const cells = parseCells(editor.document.getText());
+  const sourceFile = path.basename(editor.document.fileName, path.extname(editor.document.fileName));
 
   try {
     for (const cell of cells) {
@@ -81,7 +96,7 @@ async function handleRunAboveAndSnapshotCell(cellIndex: number): Promise<void> {
       if (!cell.code) continue;
       await executeCell(root, cell.index, cell.code);
     }
-    await takeSnapshot(root, cellIndex);
+    await takeSnapshot(root, cellIndex, sourceFile);
     vscode.window.showInformationMessage(`Snapcell: Ran above + snapshot at cell ${cellIndex + 1}`);
   } catch (err) {
     vscode.window.showErrorMessage(`Snapcell: ${err}`);
@@ -112,10 +127,13 @@ async function handleRunBelowCell(cellIndex: number): Promise<void> {
   }
 
   const pick = await vscode.window.showQuickPick(
-    snapshots.map((s) => ({ label: s })),
+    snapshots.map((s) => s.display),
     { placeHolder: 'Select snapshot to restore' },
   );
   if (!pick) return;
+
+  const entry = snapshots.find((s) => s.display === pick);
+  if (!entry) return;
 
   try {
     const allImports = await extractAllImports(cells, extensionPath);
@@ -123,7 +141,7 @@ async function handleRunBelowCell(cellIndex: number): Promise<void> {
       await executeInKernel(snapImportsCode(allImports));
     }
 
-    await restoreSnapshot(root, pick.label);
+    await restoreSnapshot(root, entry.filename);
 
     for (const cell of cells) {
       if (cell.index < cellIndex) continue;
@@ -163,10 +181,13 @@ async function handleRestoreSnapshot(): Promise<void> {
   }
 
   const pick = await vscode.window.showQuickPick(
-    snapshots.map((s) => ({ label: s })),
+    snapshots.map((s) => s.display),
     { placeHolder: 'Select snapshot to restore' },
   );
   if (!pick) return;
+
+  const entry = snapshots.find((s) => s.display === pick);
+  if (!entry) return;
 
   try {
     const allImports = await extractAllImports(cells, extensionPath);
@@ -174,7 +195,7 @@ async function handleRestoreSnapshot(): Promise<void> {
       await executeInKernel(snapImportsCode(allImports));
     }
 
-    await restoreSnapshot(root, pick.label);
+    await restoreSnapshot(root, entry.filename);
 
     vscode.window.showInformationMessage('Snapshot restored');
   } catch (err) {
